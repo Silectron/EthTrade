@@ -65,14 +65,15 @@ class StaticGridStrategyV2(TradingStrategy):
         self.orders[self.index] = Order(price, quantity, OrderType.SELL)
 
     def update(self, price: float):
-        if price < self.levels[self.index]:
+        if self.levels[0] < price < self.levels[self.index]:
             # leaving grid level top-down
+            order = self.orders[self.index]
+            if order.order_type == OrderType.BUY:
+                self.portfolio.buy(order.price, order.quantity)
+                self.orders[self.index] = Order(self.levels[self.index + 1],
+                                                order.quantity, OrderType.SELL)
+
             if self.index > 0:
-                order = self.orders[self.index]
-                if order.order_type == OrderType.BUY:
-                    self.portfolio.buy(order.price, order.quantity)
-                    self.orders[self.index] = Order(self.levels[self.index + 1],
-                                                    order.quantity, OrderType.SELL)
                 self.index -= 1
                 # entered grid level top-down
 
@@ -161,9 +162,10 @@ class StaticGridStrategy(TradingStrategy):
 
 
 def main():
-    grid = np.cumprod(np.ones(10) * 1.03) * 3000 / 1.03
+    pct = 1.05
+    levels = np.cumprod(np.ones(5) * pct) * 3000 / pct
     portfolio = Portfolio(10000, 0.005)
-    strategy = StaticGridStrategyV2(portfolio, grid)
+    strategy = StaticGridStrategyV2(portfolio, levels)
 
     # df = pd.read_csv('HistoricalData_1635060599752.csv')
     # df['Date'] = pd.to_datetime(df['Date'])
