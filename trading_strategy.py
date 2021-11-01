@@ -66,6 +66,7 @@ class StaticGridStrategy(TradingStrategy):
         self.orders = [BuyOrder(levels[i], self.portfolio.budget / self.levels[i]
                                 / self.n, OrderType.STOP) for i in range(self.n)]
         self.index = 0
+        self.unlocked = False
 
     def _place_stop_buy_order(self, price: float, quantity: int):
         self.orders[self.index] = BuyOrder(price, quantity, OrderType.STOP)
@@ -74,7 +75,10 @@ class StaticGridStrategy(TradingStrategy):
         self.orders[self.index] = SellOrder(price, quantity, OrderType.STOP)
 
     def update(self, price: float):
-        if price < self.levels[self.index]:
+        if not self.unlocked and price > self.levels[self.index]:
+            self.unlocked = True
+
+        if self.unlocked and price < self.levels[self.index]:
             # leaving grid level top-down
             order = self.orders[self.index]
             if price >= order.price and isinstance(order, BuyOrder):
@@ -109,8 +113,8 @@ class StaticGridStrategy(TradingStrategy):
 
 
 def main():
-    pct = 1.03
-    levels = np.cumprod(np.ones(10) * pct) * 3000 / pct
+    pct = 1.05
+    levels = np.cumprod(np.ones(5) * pct) * 3000 / pct
     portfolio = Portfolio(10000, 0.005)
     strategy = StaticGridStrategy(portfolio, levels)
 
