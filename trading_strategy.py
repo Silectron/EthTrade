@@ -65,7 +65,7 @@ class StaticGridStrategyV2(TradingStrategy):
         self.orders[self.index] = Order(price, quantity, OrderType.SELL)
 
     def update(self, price: float):
-        if self.levels[0] < price < self.levels[self.index]:
+        if price < self.levels[self.index]:
             # leaving grid level top-down
             order = self.orders[self.index]
             if order.order_type == OrderType.BUY:
@@ -180,12 +180,12 @@ def main():
     df['date'] = pd.to_datetime(df['date'])
     df = df.set_index('date').sort_index()
 
-    df = df[df.index > '2021-06-01']
+    # df = df[df.index > '2021-06-01']
 
     for i in range(len(df) - 1):
         strategy.update(df.iloc[i]['close'])
-        print(
-            f'{df.iloc[i]["close"]}: {portfolio.networth(df.iloc[i]["close"])}, {strategy.index}')
+    # print(
+    #     f'{df.iloc[i]["close"]}: {portfolio.networth(df.iloc[i]["close"])}, {strategy.index}')
 
 
 if __name__ == "__main__":
