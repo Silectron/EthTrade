@@ -4,21 +4,12 @@ from abc import abstractmethod
 from dataclasses import dataclass
 import numpy as np
 import pandas as pd
-# import os
-
-
-# log_file = "trading_strategy3.log"
-
-
-# # open and write to file
-# def write_to_file(data, filename=log_file):
-#     with open(filename, 'a') as f:
-#         f.write(data)
 
 
 class OrderType(Enum):
-    BUY = 1
-    SELL = 2
+    MARKET = 1
+    LIMIT = 2
+    STOP = 3
 
 
 @dataclass
@@ -26,6 +17,16 @@ class Order:
     price: float
     quantity: int
     order_type: OrderType
+
+
+@dataclass
+class BuyOrder(Order):
+    ...
+
+
+@dataclass
+class SellOrder(Order):
+    ...
 
 
 class Portfolio:
@@ -38,13 +39,11 @@ class Portfolio:
         self.budget -= price * quantity * (1 + self.transaction_fee)
         self.quantity += quantity
         print(f"Bought {quantity} shares at {price}")
-        # write_to_file(f"Bought {quantity} shares at {price}\n")
 
     def sell(self, price: float, quantity: int):
         self.budget += price * quantity * (1 - self.transaction_fee)
         self.quantity -= quantity
         print(f"Sold {quantity} shares at {price}")
-        # write_to_file(f"Sold {quantity} shares at {price}\n")
 
     def networth(self, price: float):
         return self.budget + self.quantity * price
@@ -59,30 +58,26 @@ class TradingStrategy:
         raise NotImplementedError
 
 
-class StaticGridStrategyV2(TradingStrategy):
+class StaticGridStrategy(TradingStrategy):
     def __init__(self, portfolio: Portfolio, levels: List[float]):
         super().__init__(portfolio)
         self.n = len(levels) - 1
         self.levels = levels
-        self.orders = [Order(levels[i], self.portfolio.budget / self.levels[i],
-                             OrderType.BUY) for i in range(self.n)]
+        self.orders = [BuyOrder(levels[i], self.portfolio.budget / self.levels[i]
+                                / self.n, OrderType.STOP) for i in range(self.n)]
         self.index = 0
-        self.unlocked = False
 
     def _place_stop_buy_order(self, price: float, quantity: int):
-        self.orders[self.index] = Order(price, quantity, OrderType.BUY)
+        self.orders[self.index] = BuyOrder(price, quantity, OrderType.STOP)
 
     def _place_stop_sell_order(self, price: float, quantity: int):
-        self.orders[self.index] = Order(price, quantity, OrderType.SELL)
+        self.orders[self.index] = SellOrder(price, quantity, OrderType.STOP)
 
     def update(self, price: float):
-        if not self.unlocked and price > self.levels[self.index]:
-            self.unlocked = True
-
-        if price < self.levels[self.index] and self.unlocked:
+        if price < self.levels[self.index]:
             # leaving grid level top-down
             order = self.orders[self.index]
-            if order.order_type == OrderType.BUY:
+            if price >= order.price and isinstance(order, BuyOrder):
                 self.portfolio.buy(order.price, order.quantity)
                 self._place_stop_sell_order(
                     self.levels[self.index + 1], order.quantity)
@@ -94,7 +89,7 @@ class StaticGridStrategyV2(TradingStrategy):
         elif price > self.levels[self.index + 1]:
             # leaving grid level bottom-up
             order = self.orders[self.index]
-            if order.order_type == OrderType.SELL:
+            if price >= order.price and isinstance(order, SellOrder):
                 before_budget = self.portfolio.budget
                 self.portfolio.sell(order.price, order.quantity)
                 after_budget = self.portfolio.budget
@@ -107,84 +102,17 @@ class StaticGridStrategyV2(TradingStrategy):
                 self.index += 1
                 # entering grid level bottom-up
                 order = self.orders[self.index]
-                if order.order_type == OrderType.BUY:
+                if price >= order.price and isinstance(order, BuyOrder):
                     self.portfolio.buy(order.price, order.quantity)
                     self._place_stop_sell_order(
                         self.levels[self.index + 1], order.quantity)
 
 
-class StaticGridStrategy(TradingStrategy):
-    def __init__(self, portfolio: Portfolio, levels: List[float]):
-        super().__init__(portfolio)
-        self.n = len(levels) - 1
-        self.levels = levels
-        budget = portfolio.budget
-        self.budgets = [budget / self.n] * self.n
-        self.orders = [None] * self.n
-        self.index = 0
-
-    def _execute_buy(self):
-        order = self.orders[self.index]
-        self.portfolio.buy(order.price, order.quantity)
-        self.budgets[self.index] = 0
-        self._place_sell_limit(self.levels[self.index + 1], order.quantity)
-
-    def _execute_sell(self):
-        order = self.orders[self.index]
-        before_budget = self.portfolio.budget
-        self.portfolio.sell(order.price, order.quantity)
-        after_budget = self.portfolio.budget
-        self.budgets[self.index] = after_budget - before_budget
-        self.orders[self.index] = None
-
-    def _place_buy_limit(self, price: float, quantity: float):
-        self.orders[self.index] = Order(price, quantity, OrderType.BUY)
-
-    def _place_sell_limit(self, price: float, quantity: int):
-        self.orders[self.index] = Order(price, quantity, OrderType.SELL)
-
-    def update(self, price: float):
-        if price < self.levels[self.index]:
-            # leaving grid level top-down
-            order = self.orders[self.index]
-            if order and order.order_type == OrderType.BUY:
-                self._execute_buy()
-
-            if self.index > 0:
-                self.index -= 1
-                # entered grid level top-down
-                order = self.orders[self.index]
-                if not order:
-                    # place buy limit if no order is present
-                    level = self.levels[self.index]
-                    budget = self.budgets[self.index]
-                    self._place_buy_limit(level, budget / level)
-
-        elif price > self.levels[self.index + 1]:
-            # leaving grid level bottom-up
-            order = self.orders[self.index]
-            if order and order.order_type == OrderType.BUY:
-                self.orders[self.index] = None
-
-            if self.index < self.n - 1:
-                self.index += 1
-                # entered grid level bottom-up
-                order = self.orders[self.index]
-                if order and order.order_type == OrderType.SELL:
-                    # execute sell order if sell limit was placd
-                    self._execute_sell()
-                elif not order:
-                    # OPTIONAL: place a buy limit if no order is present
-                    level = self.levels[self.index]
-                    budget = self.budgets[self.index]
-                    self._place_buy_limit(level, budget / level)
-
-
 def main():
-    pct = 1.05
-    levels = np.cumprod(np.ones(5) * pct) * 3000 / pct
+    pct = 1.03
+    levels = np.cumprod(np.ones(10) * pct) * 3000 / pct
     portfolio = Portfolio(10000, 0.005)
-    strategy = StaticGridStrategyV2(portfolio, levels)
+    strategy = StaticGridStrategy(portfolio, levels)
 
     # df = pd.read_csv('HistoricalData_1635060599752.csv')
     # df['Date'] = pd.to_datetime(df['Date'])
