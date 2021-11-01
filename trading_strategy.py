@@ -153,11 +153,17 @@ def main():
     print(
         f'{df.iloc[i]["close"]}: {portfolio.networth(df.iloc[i]["close"])}, {strategy.index}')
 
-    plt.plot(range(len(df)), df['close'])
+    domain = range(len(df))
+
+    plt.plot(domain, df['close'])
     plt.scatter(list(strategy.buys.keys()), list(
         strategy.buys.values()), c='r', marker='v')
     plt.scatter(list(strategy.sells.keys()), list(
         strategy.sells.values()), c='g', marker='^')
+
+    for level in levels:
+        plt.axhline(level, color='k', alpha=0.1, linestyle='--')
+
     plt.show()
 
 
