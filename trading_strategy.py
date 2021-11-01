@@ -4,6 +4,16 @@ from abc import abstractmethod
 from dataclasses import dataclass
 import numpy as np
 import pandas as pd
+# import os
+
+
+# log_file = "trading_strategy3.log"
+
+
+# # open and write to file
+# def write_to_file(data, filename=log_file):
+#     with open(filename, 'a') as f:
+#         f.write(data)
 
 
 class OrderType(Enum):
@@ -28,11 +38,13 @@ class Portfolio:
         self.budget -= price * quantity * (1 + self.transaction_fee)
         self.quantity += quantity
         print(f"Bought {quantity} shares at {price}")
+        # write_to_file(f"Bought {quantity} shares at {price}\n")
 
     def sell(self, price: float, quantity: int):
         self.budget += price * quantity * (1 - self.transaction_fee)
         self.quantity -= quantity
         print(f"Sold {quantity} shares at {price}")
+        # write_to_file(f"Sold {quantity} shares at {price}\n")
 
     def networth(self, price: float):
         return self.budget + self.quantity * price
@@ -57,6 +69,7 @@ class StaticGridStrategyV2(TradingStrategy):
         self.orders = [Order(levels[i], self.budgets[i] / self.levels[i],
                              OrderType.BUY) for i in range(self.n)]
         self.index = 0
+        self.unlocked = False
 
     def _place_stop_buy_order(self, price: float, quantity: int):
         self.orders[self.index] = Order(price, quantity, OrderType.BUY)
@@ -65,7 +78,10 @@ class StaticGridStrategyV2(TradingStrategy):
         self.orders[self.index] = Order(price, quantity, OrderType.SELL)
 
     def update(self, price: float):
-        if price < self.levels[self.index]:
+        if not self.unlocked and price > self.levels[self.index]:
+            self.unlocked = True
+
+        if price < self.levels[self.index] and self.unlocked:
             # leaving grid level top-down
             order = self.orders[self.index]
             if order.order_type == OrderType.BUY:
@@ -91,6 +107,12 @@ class StaticGridStrategyV2(TradingStrategy):
                                                     self.levels[self.index],
                                                     OrderType.BUY)
                 self.index += 1
+
+                # order = self.orders[self.index]
+                # if order.order_type == OrderType.BUY:
+                #     self.portfolio.buy(order.price, order.quantity)
+                #     self.orders[self.index] = Order(self.levels[self.index + 1],
+                #                                     order.quantity, OrderType.SELL)
                 # entered grid level bottom-up
 
 
