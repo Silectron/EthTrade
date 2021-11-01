@@ -1,4 +1,4 @@
-from typing import Protocol, List
+from typing import List
 from enum import Enum
 from abc import abstractmethod
 from dataclasses import dataclass
@@ -47,43 +47,143 @@ class TradingStrategy:
         raise NotImplementedError
 
 
-class StaticGridStrategy(TradingStrategy):
-    def __init__(self, portfolio: Portfolio, grid: List[float]):
+class StaticGridStrategyV2(TradingStrategy):
+    def __init__(self, portfolio: Portfolio, levels: List[float]):
         super().__init__(portfolio)
-        self.n = len(grid) - 1
-        self.grid = grid
-        self.orders = [None] * self.n
+        self.n = len(levels) - 1
+        self.levels = levels
+        budget = self.portfolio.budget
+        self.budgets = [budget / self.n] * self.n
+        self.orders = [Order(levels[i], self.budgets[i] / self.levels[i],
+                             OrderType.BUY) for i in range(self.n)]
         self.index = 0
 
-    def update(self, price: float):
-        if price < self.grid[self.index]:
-            # leaving grid level top-down
+    def _place_stop_buy_order(self, price: float, quantity: int):
+        self.orders[self.index] = Order(price, quantity, OrderType.BUY)
 
+    def _place_stop_sell_order(self, price: float, quantity: int):
+        self.orders[self.index] = Order(price, quantity, OrderType.SELL)
+
+    def update(self, price: float):
+        if price < self.levels[self.index]:
+            # leaving grid level top-down
             if self.index > 0:
+                order = self.orders[self.index]
+                if order.order_type == OrderType.BUY:
+                    self.portfolio.buy(order.price, order.quantity)
+                    self.orders[self.index] = Order(self.levels[self.index + 1],
+                                                    order.quantity, OrderType.SELL)
                 self.index -= 1
                 # entered grid level top-down
 
-        elif price > self.grid[self.index]:
+        elif price > self.levels[self.index + 1]:
             # leaving grid level bottom-up
-
             if self.index < self.n - 1:
+                order = self.orders[self.index]
+                if order.order_type == OrderType.SELL:
+                    before_budget = self.portfolio.budget
+                    self.portfolio.sell(order.price, order.quantity)
+                    after_budget = self.portfolio.budget
+                    self.budgets[self.index] = after_budget - before_budget
+                    self.orders[self.index] = Order(self.levels[self.index],
+                                                    self.budgets[self.index] /
+                                                    self.levels[self.index],
+                                                    OrderType.BUY)
                 self.index += 1
                 # entered grid level bottom-up
 
 
+class StaticGridStrategy(TradingStrategy):
+    def __init__(self, portfolio: Portfolio, levels: List[float]):
+        super().__init__(portfolio)
+        self.n = len(levels) - 1
+        self.levels = levels
+        budget = portfolio.budget
+        self.budgets = [budget / self.n] * self.n
+        self.orders = [None] * self.n
+        self.index = 0
+
+    def _execute_buy(self):
+        order = self.orders[self.index]
+        self.portfolio.buy(order.price, order.quantity)
+        self.budgets[self.index] = 0
+        self._place_sell_limit(self.levels[self.index + 1], order.quantity)
+
+    def _execute_sell(self):
+        order = self.orders[self.index]
+        before_budget = self.portfolio.budget
+        self.portfolio.sell(order.price, order.quantity)
+        after_budget = self.portfolio.budget
+        self.budgets[self.index] = after_budget - before_budget
+        self.orders[self.index] = None
+
+    def _place_buy_limit(self, price: float, quantity: float):
+        self.orders[self.index] = Order(price, quantity, OrderType.BUY)
+
+    def _place_sell_limit(self, price: float, quantity: int):
+        self.orders[self.index] = Order(price, quantity, OrderType.SELL)
+
+    def update(self, price: float):
+        if price < self.levels[self.index]:
+            # leaving grid level top-down
+            order = self.orders[self.index]
+            if order and order.order_type == OrderType.BUY:
+                self._execute_buy()
+
+            if self.index > 0:
+                self.index -= 1
+                # entered grid level top-down
+                order = self.orders[self.index]
+                if not order:
+                    # place buy limit if no order is present
+                    level = self.levels[self.index]
+                    budget = self.budgets[self.index]
+                    self._place_buy_limit(level, budget / level)
+
+        elif price > self.levels[self.index + 1]:
+            # leaving grid level bottom-up
+            order = self.orders[self.index]
+            if order and order.order_type == OrderType.BUY:
+                self.orders[self.index] = None
+
+            if self.index < self.n - 1:
+                self.index += 1
+                # entered grid level bottom-up
+                order = self.orders[self.index]
+                if order and order.order_type == OrderType.SELL:
+                    # execute sell order if sell limit was placd
+                    self._execute_sell()
+                elif not order:
+                    # OPTIONAL: place a buy limit if no order is present
+                    level = self.levels[self.index]
+                    budget = self.budgets[self.index]
+                    self._place_buy_limit(level, budget / level)
+
+
 def main():
     grid = np.cumprod(np.ones(10) * 1.03) * 3000 / 1.03
-    portfolio = Portfolio(1000, 0.005)
-    strategy = StaticGridStrategy(portfolio, grid)
+    portfolio = Portfolio(10000, 0.005)
+    strategy = StaticGridStrategyV2(portfolio, grid)
 
-    df = pd.read_csv('HistoricalData_1635060599752.csv')
-    df['Date'] = pd.to_datetime(df['Date'])
-    df = df.set_index('Date').sort_index()
+    # df = pd.read_csv('HistoricalData_1635060599752.csv')
+    # df['Date'] = pd.to_datetime(df['Date'])
+    # df = df.set_index('Date').sort_index()
+
+    # for i in range(len(df) - 1):
+    #     strategy.update(df.iloc[i]['Close/Last'])
+    #     print(
+    #         f'{df.iloc[i]["Close/Last"]}: {portfolio.networth(df.iloc[i]["Close/Last"])}')
+
+    df = pd.read_csv('Bitstamp_ETHUSD_1h.csv')
+    df['date'] = pd.to_datetime(df['date'])
+    df = df.set_index('date').sort_index()
+
+    df = df[df.index > '2021-06-01']
 
     for i in range(len(df) - 1):
-        strategy.update(df.iloc[i]['Close/Last'])
+        strategy.update(df.iloc[i]['close'])
         print(
-            f'{df.iloc[i]["Close/Last"]}: {portfolio.networth(df.iloc[i]["Close/Last"])}')
+            f'{df.iloc[i]["close"]}: {portfolio.networth(df.iloc[i]["close"])}, {strategy.index}')
 
 
 if __name__ == "__main__":
