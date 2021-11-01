@@ -64,9 +64,7 @@ class StaticGridStrategyV2(TradingStrategy):
         super().__init__(portfolio)
         self.n = len(levels) - 1
         self.levels = levels
-        budget = self.portfolio.budget
-        self.budgets = [budget / self.n] * self.n
-        self.orders = [Order(levels[i], self.budgets[i] / self.levels[i],
+        self.orders = [Order(levels[i], self.portfolio.budget / self.levels[i],
                              OrderType.BUY) for i in range(self.n)]
         self.index = 0
         self.unlocked = False
@@ -86,34 +84,33 @@ class StaticGridStrategyV2(TradingStrategy):
             order = self.orders[self.index]
             if order.order_type == OrderType.BUY:
                 self.portfolio.buy(order.price, order.quantity)
-                self.orders[self.index] = Order(self.levels[self.index + 1],
-                                                order.quantity, OrderType.SELL)
+                self._place_stop_sell_order(
+                    self.levels[self.index + 1], order.quantity)
 
             if self.index > 0:
                 self.index -= 1
-                # entered grid level top-down
+                # entering grid level top-down
 
         elif price > self.levels[self.index + 1]:
             # leaving grid level bottom-up
-            if self.index < self.n - 1:
-                order = self.orders[self.index]
-                if order.order_type == OrderType.SELL:
-                    before_budget = self.portfolio.budget
-                    self.portfolio.sell(order.price, order.quantity)
-                    after_budget = self.portfolio.budget
-                    self.budgets[self.index] = after_budget - before_budget
-                    self.orders[self.index] = Order(self.levels[self.index],
-                                                    self.budgets[self.index] /
-                                                    self.levels[self.index],
-                                                    OrderType.BUY)
-                self.index += 1
+            order = self.orders[self.index]
+            if order.order_type == OrderType.SELL:
+                before_budget = self.portfolio.budget
+                self.portfolio.sell(order.price, order.quantity)
+                after_budget = self.portfolio.budget
 
-                # order = self.orders[self.index]
-                # if order.order_type == OrderType.BUY:
-                #     self.portfolio.buy(order.price, order.quantity)
-                #     self.orders[self.index] = Order(self.levels[self.index + 1],
-                #                                     order.quantity, OrderType.SELL)
-                # entered grid level bottom-up
+                self._place_stop_buy_order(self.levels[self.index],
+                                           (after_budget - before_budget) /
+                                           self.levels[self.index])
+
+            if self.index < self.n - 1:
+                self.index += 1
+                # entering grid level bottom-up
+                order = self.orders[self.index]
+                if order.order_type == OrderType.BUY:
+                    self.portfolio.buy(order.price, order.quantity)
+                    self._place_stop_sell_order(
+                        self.levels[self.index + 1], order.quantity)
 
 
 class StaticGridStrategy(TradingStrategy):
@@ -202,12 +199,12 @@ def main():
     df['date'] = pd.to_datetime(df['date'])
     df = df.set_index('date').sort_index()
 
-    # df = df[df.index > '2021-06-01']
+    df = df[df.index > '2021-06-01']
 
     for i in range(len(df) - 1):
         strategy.update(df.iloc[i]['close'])
-    # print(
-    #     f'{df.iloc[i]["close"]}: {portfolio.networth(df.iloc[i]["close"])}, {strategy.index}')
+    print(
+        f'{df.iloc[i]["close"]}: {portfolio.networth(df.iloc[i]["close"])}, {strategy.index}')
 
 
 if __name__ == "__main__":
