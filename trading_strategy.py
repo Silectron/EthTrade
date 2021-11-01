@@ -74,6 +74,20 @@ class StaticGridStrategy(TradingStrategy):
     def _place_stop_sell_order(self, price: float, quantity: int):
         self.orders[self.index] = SellOrder(price, quantity, OrderType.STOP)
 
+    def _execute_buy(self, order: Order):
+        self.portfolio.buy(order.price, order.quantity)
+        self._place_stop_sell_order(
+            self.levels[self.index + 1], order.quantity)
+
+    def _execute_sell(self, order: Order):
+        before_budget = self.portfolio.budget
+        self.portfolio.sell(order.price, order.quantity)
+        after_budget = self.portfolio.budget
+
+        self._place_stop_buy_order(self.levels[self.index],
+                                   (after_budget - before_budget) /
+                                   self.levels[self.index])
+
     def update(self, price: float):
         if not self.unlocked and price > self.levels[self.index]:
             self.unlocked = True
@@ -82,9 +96,7 @@ class StaticGridStrategy(TradingStrategy):
             # leaving grid level top-down
             order = self.orders[self.index]
             if price >= order.price and isinstance(order, BuyOrder):
-                self.portfolio.buy(order.price, order.quantity)
-                self._place_stop_sell_order(
-                    self.levels[self.index + 1], order.quantity)
+                self._execute_buy()
 
             if self.index > 0:
                 self.index -= 1
@@ -94,22 +106,14 @@ class StaticGridStrategy(TradingStrategy):
             # leaving grid level bottom-up
             order = self.orders[self.index]
             if price >= order.price and isinstance(order, SellOrder):
-                before_budget = self.portfolio.budget
-                self.portfolio.sell(order.price, order.quantity)
-                after_budget = self.portfolio.budget
-
-                self._place_stop_buy_order(self.levels[self.index],
-                                           (after_budget - before_budget) /
-                                           self.levels[self.index])
+                self._execute_sell(self, order)
 
             if self.index < self.n - 1:
                 self.index += 1
                 # entering grid level bottom-up
                 order = self.orders[self.index]
                 if price >= order.price and isinstance(order, BuyOrder):
-                    self.portfolio.buy(order.price, order.quantity)
-                    self._place_stop_sell_order(
-                        self.levels[self.index + 1], order.quantity)
+                    self._execute_buy()
 
 
 def main():
