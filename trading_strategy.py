@@ -96,7 +96,7 @@ class StaticGridStrategy(TradingStrategy):
             # leaving grid level top-down
             order = self.orders[self.index]
             if price >= order.price and isinstance(order, BuyOrder):
-                self._execute_buy()
+                self._execute_buy(order)
 
             if self.index > 0:
                 self.index -= 1
@@ -106,14 +106,14 @@ class StaticGridStrategy(TradingStrategy):
             # leaving grid level bottom-up
             order = self.orders[self.index]
             if price >= order.price and isinstance(order, SellOrder):
-                self._execute_sell(self, order)
+                self._execute_sell(order)
 
             if self.index < self.n - 1:
                 self.index += 1
                 # entering grid level bottom-up
                 order = self.orders[self.index]
                 if price >= order.price and isinstance(order, BuyOrder):
-                    self._execute_buy()
+                    self._execute_buy(order)
 
 
 def main():
