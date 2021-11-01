@@ -4,6 +4,7 @@ from abc import abstractmethod
 from dataclasses import dataclass
 import numpy as np
 import pandas as pd
+from matplotlib import pyplot as plt
 
 
 class OrderType(Enum):
@@ -68,6 +69,10 @@ class StaticGridStrategy(TradingStrategy):
         self.index = 0
         self.unlocked = False
 
+        self.t = 0
+        self.buys = {}
+        self.sells = {}
+
     def _place_stop_buy_order(self, price: float, quantity: int):
         self.orders[self.index] = BuyOrder(price, quantity, OrderType.STOP)
 
@@ -98,6 +103,7 @@ class StaticGridStrategy(TradingStrategy):
             if isinstance(order, BuyOrder):
                 print(self.index, order)
                 self._execute_buy(order)
+                self.buys[self.t] = price
 
             if self.index > 0:
                 self.index -= 1
@@ -108,6 +114,7 @@ class StaticGridStrategy(TradingStrategy):
             order = self.orders[self.index]
             if isinstance(order, SellOrder):
                 self._execute_sell(order)
+                self.sells[self.t] = price
 
             if self.index < self.n - 1:
                 self.index += 1
@@ -115,6 +122,9 @@ class StaticGridStrategy(TradingStrategy):
                 order = self.orders[self.index]
                 if isinstance(order, BuyOrder):
                     self._execute_buy(order)
+                    self.buys[self.t] = price
+
+        self.t += 1
 
 
 def main():
@@ -142,6 +152,13 @@ def main():
         strategy.update(df.iloc[i]['close'])
     print(
         f'{df.iloc[i]["close"]}: {portfolio.networth(df.iloc[i]["close"])}, {strategy.index}')
+
+    plt.plot(range(len(df)), df['close'])
+    plt.scatter(list(strategy.buys.keys()), list(
+        strategy.buys.values()), c='r', marker='v')
+    plt.scatter(list(strategy.sells.keys()), list(
+        strategy.sells.values()), c='g', marker='^')
+    plt.show()
 
 
 if __name__ == "__main__":
