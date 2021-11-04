@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
+import requests
 
 
 class OrderType(Enum):
@@ -88,7 +89,6 @@ class StaticGridStrategy(TradingStrategy):
         before_budget = self.portfolio.budget
         self.portfolio.sell(order.price, order.quantity)
         after_budget = self.portfolio.budget
-
         self._place_stop_buy_order(self.levels[self.index],
                                    (after_budget - before_budget) /
                                    self.levels[self.index])
@@ -96,12 +96,15 @@ class StaticGridStrategy(TradingStrategy):
     def update(self, price: float):
         if not self.unlocked and price > self.levels[self.index]:
             self.unlocked = True
+            order = self.orders[self.index]
+            if isinstance(order, BuyOrder):
+                self._execute_buy(order)
+                self.buys[self.t] = price
 
         if self.unlocked and price < self.levels[self.index]:
             # leaving grid level top-down
             order = self.orders[self.index]
             if isinstance(order, BuyOrder):
-                print(self.index, order)
                 self._execute_buy(order)
                 self.buys[self.t] = price
 
@@ -165,6 +168,9 @@ def main():
         plt.axhline(level, color='k', alpha=0.1, linestyle='--')
 
     plt.show()
+
+    # get eth-usd hourly historical data
+    data = requests.get()
 
 
 if __name__ == "__main__":
