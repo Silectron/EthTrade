@@ -6,7 +6,9 @@ from math import inf
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
-from collections import defaultdict
+
+from orders import OrderType, Order, BuyOrder, SellOrder, OrderList
+from portfolio import Portfolio, SimulationPortfolio
 
 
 ###############################################################################
@@ -14,169 +16,9 @@ from collections import defaultdict
 ###############################################################################
 
 
-class OrderType(Enum):
-    MARKET = 1
-    LIMIT = 2
-    STOP = 3
-
-
-@dataclass
-class Order:
-    price: float
-    quantity: int
-    total: float
-    order_type: OrderType
-    callback: Callable[[Order], None]
-
-
-class BuyOrder(Order):
-    ...
-
-
-class SellOrder(Order):
-    ...
-
-
-class OrderList:
-    def __init__(self):
-        self.buy_orders: List[Order] = []
-        self.sell_orders: List[Order] = []
-
-    def add_order(self, order: Order):
-        if isinstance(order, BuyOrder):
-            self.buy_orders.append(order)
-        elif isinstance(order, SellOrder):
-            self.sell_orders.append(order)
-
-    def remove_order(self, order: Order):
-        if isinstance(order, BuyOrder):
-            self.buy_orders.remove(order)
-        elif isinstance(order, SellOrder):
-            self.sell_orders.remove(order)
-
-
 ###############################################################################
 # Portfolio Section
 ###############################################################################
-
-
-class Portfolio:
-    def __init__(self, security: str, budget: float, quantity: float,
-                 transaction_fee: int | float, orders: OrderList = None):
-        self.security: str = security
-        self.budget: float = budget
-        self.quantity: int = quantity
-        self.transaction_fee: int | float = transaction_fee
-        self.orders: OrderList = orders if orders else OrderList()
-
-    def apply_fee(self, budget: float) -> float:
-        if isinstance(self.transaction_fee, int):
-            return budget - self.transaction_fee
-        elif isinstance(self.transaction_fee, float):
-            return budget * (1 - self.transaction_fee)
-
-    def unapply_fee(self, budget: float) -> float:
-        if isinstance(self.transaction_fee, int):
-            return budget + self.transaction_fee
-        elif isinstance(self.transaction_fee, float):
-            return budget / (1 - self.transaction_fee)
-
-    def create_buy_limit_order(self, price: float, quantity: float,
-                               callback: Callable[[Order], None]) -> Order | None:
-        total = self.unapply_fee(price * quantity)
-
-        if total > self.budget:
-            print("Budget is not enough")
-            return
-
-        return BuyOrder(price, quantity, total, OrderType.LIMIT, callback)
-
-    def create_sell_limit_order(self, price: float, quantity: float,
-                                callback: Callable[[Order], None]) -> Order | None:
-        total = self.apply_fee(price * quantity)
-
-        if quantity > self.quantity:
-            print("Quantity is not enough")
-            return
-
-        return SellOrder(price, quantity, total, OrderType.LIMIT, callback)
-
-    def create_buy_stop_order(self, price: float, quantity: float,
-                              callback: Callable[[Order], None]) -> Order | None:
-        total = self.unapply_fee(price * quantity)
-
-        if total > self.budget:
-            print("Budget is not enough")
-            return
-
-        return BuyOrder(price, quantity, total, OrderType.STOP, callback)
-
-    def create_sell_stop_order(self, price: float, quantity: float,
-                               callback: Callable[[Order], None]) -> Order | None:
-        total = self.apply_fee(price * quantity)
-
-        if quantity > self.quantity:
-            print("Quantity is not enough")
-            return
-
-        return SellOrder(price, quantity, total, OrderType.STOP, callback)
-
-    def reset(self, price: float):
-        raise NotImplementedError
-
-    def step(self, price: float):
-        raise NotImplementedError
-
-
-class SimulationPortfolio(Portfolio):
-    def __init__(self, security: str, budget: float, quantity: float,
-                 transaction_fee: int | float, orders: OrderList = OrderList()):
-        super().__init__(security, budget, quantity, transaction_fee, orders)
-        self.orders_history: List[Order] = []
-
-    def _execute_order(self, order: Order):
-        if isinstance(order, BuyOrder):
-            self.quantity += order.quantity
-            self.budget -= order.total
-            self.orders.remove_order(order)
-            print(
-                f"Bought {order.quantity:.2f} {self.security} at {order.price:.2f}")
-
-        elif isinstance(order, SellOrder):
-            self.quantity -= order.quantity
-            self.budget += order.total
-            self.orders.remove_order(order)
-            print(
-                f"Sold {order.quantity:.2f} {self.security} at {order.price:.2f}")
-
-        order.callback(order)
-        self.orders_history[-1].append(order)
-
-    def reset(self, price: float):
-        ...
-
-    def step(self, price: float):
-        self.orders_history.append([])
-
-        for order in self.orders.buy_orders:
-            if order.order_type == OrderType.MARKET:
-                self._execute_order(order)
-            elif order.order_type == OrderType.LIMIT:
-                if order.price >= price:
-                    self._execute_order(order)
-            elif order.order_type == OrderType.STOP:
-                if order.price <= price:
-                    self._execute_order(order)
-
-        for order in self.orders.sell_orders:
-            if order.order_type == OrderType.MARKET:
-                self._execute_order(order)
-            elif order.order_type == OrderType.LIMIT:
-                if order.price <= price:
-                    self._execute_order(order)
-            elif order.order_type == OrderType.STOP:
-                if order.price >= price:
-                    self._execute_order(order)
 
 
 ###############################################################################
@@ -198,6 +40,7 @@ class Strategy:
 @ dataclass
 class Level:
     budget: float
+    quantity: int
     lower_bound: float
     upper_bound: float
     next: Level = None
@@ -207,12 +50,13 @@ class Level:
 class GridStrategy(Strategy):
     def __init__(self, portfolio: Portfolio, levels: List[float]):
         super().__init__(portfolio)
-        self.current_level = self._construct_linked_list(levels)
+        self._construct_linked_list(levels)
+        # self._distribute_budget()
 
-    def _construct_linked_list(self, levels: List[float]) -> Level:
+    def _construct_linked_list(self, levels: List[float]):
         n = len(levels) - 1
 
-        current_level = Level(0, 0, levels[0])
+        self.current_level = Level(0, 0, 0, levels[0])
 
         for i in range(n):
             budget = self.portfolio.budget / n
@@ -223,14 +67,13 @@ class GridStrategy(Strategy):
                 price, quantity, self._buy_callback)
             self._place_order(order)
 
-            current_level.next = Level(budget, levels[i], levels[i + 1])
-            current_level.next.prev = current_level
-            current_level = current_level.next
+            self.current_level.next = Level(
+                budget, 0, levels[i], levels[i + 1])
+            self.current_level.next.prev = self.current_level
+            self.current_level = self.current_level.next
 
-        current_level.next = Level(0, levels[n], inf)
-        current_level.next.prev = current_level
-
-        return current_level
+        self.current_level.next = Level(0, 0, levels[n], inf)
+        self.current_level.next.prev = self.current_level
 
     def _buy_callback(self, order: Order):
         level = self.current_level
@@ -243,14 +86,13 @@ class GridStrategy(Strategy):
                 level = level.next
 
         level.budget -= order.total
+        level.quantity += order.quantity
 
-        order = self.portfolio.create_sell_limit_order(
-            level.upper_bound, order.quantity, self._sell_callback)
-        self._place_order(order)
+        print(
+            f"bought {order.quantity} for {order.total} at level {level.lower_bound}")
 
     def _sell_callback(self, order: Order):
         level = self.current_level
-
         # TODO: refactor this
         while order.price != level.upper_bound:
             if order.price < level.upper_bound:
@@ -259,10 +101,15 @@ class GridStrategy(Strategy):
                 level = level.next
 
         level.budget += order.total
+        level.quantity -= order.quantity
 
-        order = self.portfolio.create_buy_limit_order(
-            level.lower_bound, self.portfolio.apply_fee(level.budget) / level.lower_bound, self._buy_callback)
-        self._place_order(order)
+        buy_order = self.portfolio.create_buy_limit_order(self.current_level.lower_bound,
+                                                          self.portfolio.apply_fee(self.current_level.budget) /
+                                                          self.current_level.lower_bound, self._buy_callback)
+        self._place_order(buy_order)
+
+        print(
+            f"sold {order.quantity} for {order.total} at level {level.upper_bound}")
 
     def _next_level(self):
         self.current_level = self.current_level.next
@@ -287,47 +134,111 @@ class GridStrategy(Strategy):
         self.portfolio.reset(price)
 
     def _handle_rising_entering_level(self, price: float):
-        # def callback(order: Order):
-        #     n = 0
-        #     level = self.current_level if self.current_level.next is not None else self.current_level.prev
-        #     while level.prev is not None:
-        #         if level.budget == 0:
-        #             n += 1
-        #         level = level.prev
+        # After executing an aggregated sell order
+        # redistribute the sell amount to each level where budget is 0
+        def distribute_callback(order: Order):
+            n = 0
+            # get any level that is not the head
+            level = self.current_level if self.current_level.next is not None else self.current_level.prev
+            # go to level immediately below level where sell was executed
+            while order.price != level.upper_bound:
+                if order.price < level.upper_bound:
+                    level = level.prev
+                elif order.price > level.upper_bound:
+                    level = level.next
 
-        #     while level.next is not None:
-        #         if level.prev is None:
-        #             level = level.next
-        #             continue
+            # Go through levels below level where sell was executed and stop before tail level
+            # count the number of levels that sold in the aggregated sell order
+            while level.prev is not None:
+                if level.budget == 0:
+                    n += 1
 
-        #         if level.budget == 0:
-        #             level.budget = order.total / n
+                # omit the tail level
+                if level.prev.prev is None:
+                    break
+                level = level.prev
 
-        #         level = level.next
+            if n == 0:
+                return
 
-        # sell_orders = self.portfolio.orders.sell_orders
-        # total_quantity = 0
-        # for i in range(len(sell_orders) - 1):
-        #     if sell_orders[i].price <= self.current_level.lower_bound:
-        #         total_quantity += sell_orders[i].quantity
-        #         self.portfolio.orders.remove_order(sell_orders[i])
-        #     else:
-        #         break
+            # from level immediately above tail level, redistribute the sell amount to each level with budget 0
+            # until before the level where sell was executed (order.price > level.lower_bound)
+            while level.next is not None and order.price > level.lower_bound:
+                if level.budget == 0:
+                    level.budget = order.total / n
+                    level.quantity = 0
 
-        # if total_quantity > 0:
-        #     self._place_order(self.portfolio.create_sell_stop_order(
-        #         self.current_level.lower_bound, total_quantity, callback))
-        ...
+                    print(
+                        f"Level {level.lower_bound} now has {level.budget} from sell at {order.price}")
+
+                    # this shouldn't be necessary
+                    # buy_order = self.portfolio.create_buy_limit_order(level.lower_bound,
+                    #                                                   self.portfolio.apply_fee(level.budget) /
+                    #                                                   level.lower_bound, self._buy_callback)
+                    # self._place_order(buy_order)
+
+                level = level.next
+            print(
+                f"sold {order.quantity} at {order.price} for total of {order.total} to {n} levels")
+
+        total_quantity = 0
+        # Find all sell orders below or at the lower bound of the current level
+        sell_orders = [
+            order for order in self.portfolio.orders.sell_orders if order.price <= self.current_level.lower_bound]
+
+        # return if there are no sell orders below or at the lower bound of the current level
+        if len(sell_orders) < 1:
+            return
+        # return if there is only one sell order and its price is at the lower bound of the current level (no need to update order)
+        elif len(sell_orders) == 1 and sell_orders[0].price == self.current_level.lower_bound:
+            return
+
+        # Aggregate the total quantity of sell orders below or at the lower bound of the current level
+        for order in sell_orders:
+            total_quantity += order.quantity
+            self.portfolio.orders.remove_order(order)
+
+        # Create a new sell stop order at the lower bound of the current level
+        if total_quantity > 0:
+            # print(
+            #     f"Aggregated {total_quantity} to sell at lower bound of the current level")
+            self._place_order(self.portfolio.create_sell_stop_order(
+                self.current_level.lower_bound, total_quantity, distribute_callback))
 
     def _handle_falling_entering_level(self, price: float):
         ...
 
     def _handle_rising_leaving_level(self, price: float):
-        # if self.current_level.budget != 0:
-        #     order = self.portfolio.create_buy_stop_order(self.current_level.upper_bound,
-        #                                                  self.portfolio.apply_fee(self.current_level.budget) /
-        #                                                  self.current_level.upper_bound, self._buy_callback)
-        #     self._place_order(order)
+        # Check if we have an existing buy order in the next level
+        buy_order = None
+        for order in self.portfolio.orders.buy_orders:
+            if order.price == self.current_level.upper_bound:
+                buy_order = order
+                break
+
+        # Check if we have an existing sell order in the current level we are leaving
+        sell_order = None
+        for order in self.portfolio.orders.sell_orders:
+            if order.price == self.current_level.next.lower_bound:
+                sell_order = order
+                break
+
+        # if not and the next budget is above 0, create a buy limit order at the lower bound of the next level
+        if buy_order is None and self.current_level.next.budget > 0:
+            buy_order = self.portfolio.create_buy_limit_order(self.current_level.upper_bound,
+                                                              self.portfolio.apply_fee(self.current_level.next.budget) /
+                                                              self.current_level.upper_bound, self._buy_callback)
+            self._place_order(buy_order)
+            # print(
+            #     f"Placed buy limit order at {self.current_level.upper_bound}")
+
+        # if we dont and the current level has holdings, place a sell limit order at the lower bound of the next level
+        if sell_order is None and self.current_level.quantity > 0:
+            sell_order = self.portfolio.create_sell_stop_order(
+                self.current_level.next.lower_bound, self.current_level.quantity, self._sell_callback)
+            self._place_order(sell_order)
+            # print(
+            #     f"placed sell order at {self.current_level.next.lower_bound}")
         ...
 
     def _handle_falling_leaving_level(self, price: float):
@@ -337,7 +248,7 @@ class GridStrategy(Strategy):
         if price > self.current_level.upper_bound:
             self._handle_rising_leaving_level(price)
 
-            while price > self.current_level.next.upper_bound:
+            while price > self.current_level.upper_bound:
                 self._next_level()
 
             self._handle_rising_entering_level(price)
@@ -345,7 +256,7 @@ class GridStrategy(Strategy):
         elif price < self.current_level.lower_bound:
             self._handle_falling_leaving_level(price)
 
-            while price < self.current_level.prev.lower_bound:
+            while price < self.current_level.lower_bound:
                 self._prev_level()
 
             self._handle_falling_entering_level(price)
@@ -353,27 +264,20 @@ class GridStrategy(Strategy):
         self.portfolio.step(price)
 
 
-def calc_actual_profit(budget: float, pct: float, num_sells_per_level: List[int]):
-    n = len(num_sells_per_level)
-    budget_per_level = budget / n
-    profit = 0
-    for i in range(n):
-        profit += budget_per_level * pct ** num_sells_per_level[i]
-    return profit
-
-
 def main():
-    portfolio = SimulationPortfolio('ETC-USD', 1000, 0, 0.0)
+    portfolio = SimulationPortfolio('ETC-USD', 1000, 0, 0.005)
 
     pct = 1.05
     levels = np.cumprod(np.ones(5) * pct) * 3000 / pct
     strategy = GridStrategy(portfolio, levels)
 
-    df = pd.read_csv('Bitstamp_ETHUSD_1h.csv')
+    df = pd.read_csv('Bitstamp_ETHUSD_2021_minute.csv')
     df['date'] = pd.to_datetime(df['date'])
     df = df.set_index('date').sort_index()
 
     df = df[df.index > '2021-06-20']
+    # df = df[df.index > '2021-08-19']
+    # df = df[df.index < '2021-08-25']
 
     strategy.reset(df.iloc[0].close)
 
@@ -397,16 +301,8 @@ def main():
             elif isinstance(order, SellOrder):
                 sell_orders.append([i, order.price])
 
-    num_sells_per_level = defaultdict(int)
-    for sell_order in buy_orders:
-        num_sells_per_level[sell_order[1] * pct] += 1
-
-    print(list(num_sells_per_level.values()))
-    print(calc_actual_profit(portfolio.budget,
-          pct, list(num_sells_per_level.values())))
-
-    plt.scatter(*zip(*buy_orders), c='r', marker='v')
-    plt.scatter(*zip(*sell_orders), c='g', marker='^')
+    plt.scatter(*zip(*buy_orders), c='r', s=100, marker='v')
+    plt.scatter(*zip(*sell_orders), c='g', s=100, marker='^')
 
     for level in levels:
         plt.axhline(level, color='k', alpha=0.1, linestyle='--')
