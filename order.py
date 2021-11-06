@@ -5,7 +5,15 @@ from typing import Callable
 
 @dataclass
 class Order:
-    exec_handler: Callable[[Order], None]
+    order_id: str
+    fill_handler: Callable[[Order], None]
+
+
+@dataclass
+class FilledOrder:
+    order: Order
+    price: float
+    quantity: float
 
 
 @dataclass
