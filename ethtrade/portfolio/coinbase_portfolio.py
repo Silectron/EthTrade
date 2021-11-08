@@ -1,8 +1,8 @@
-from order import FilledOrder
-from portfolio import Portfolio
-
 from cbpro import AuthenticatedClient
 from typing import Callable
+
+from ethtrade.order import FilledOrder
+from ethtrade.portfolio import Portfolio
 
 
 class CoinbasePortfolio(Portfolio):

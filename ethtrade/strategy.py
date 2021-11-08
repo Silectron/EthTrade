@@ -1,13 +1,13 @@
 from __future__ import annotations
-from collections import defaultdict
-from portfolio import Portfolio, SimulationPortfolio
-from order import FilledOrder, BuyOrder, SellOrder
 from matplotlib import pyplot as plt
 import pandas as pd
 import numpy as np
 from math import inf
 from dataclasses import dataclass, field
 from typing import List, Dict
+
+from ethtrade.portfolio import Portfolio, SimulationPortfolio
+from ethtrade.order import FilledOrder, BuyOrder, SellOrder
 
 
 class Strategy:
@@ -21,7 +21,7 @@ class Strategy:
         raise NotImplementedError
 
 
-@ dataclass
+@dataclass
 class Level:
     budget: float
     quantity: int
@@ -62,18 +62,6 @@ class GridStrategy(Strategy):
         self.current_level.next.prev = self.current_level
 
     def _buy_callback(self, filled_order: FilledOrder):
-        # level = self.order_id_to_level_map[filled_order.order.order_id]
-        # level.budget -= filled_order.order.budget
-        # level.quantity += filled_order.quantity
-
-        # del self.order_id_to_level_map[filled_order.order.order_id]
-        # level.order_ids.remove(filled_order.order.order_id)
-
-        # order_id = self.portfolio.place_limit_sell_order(
-        #     level.upper_bound, level.quantity, self._sell_callback)
-        # self.order_id_to_level_map[order_id] = level
-        # level.order_ids.append(order_id)
-
         level = self.order_id_to_level_map[filled_order.order.order_id]
         level.budget -= filled_order.order.budget
         level.quantity += filled_order.quantity
@@ -123,22 +111,21 @@ class GridStrategy(Strategy):
         while level.prev is not None:
             remaining_quantity = level.quantity
 
-            if level.quantity > 0:
-                for order_id in level.order_ids:
-                    order = self.portfolio.get_order_by_id(order_id)
-                    if isinstance(order, SellOrder):
-                        self.portfolio.cancel_order(order_id)
+            for order_id in level.order_ids:
+                order = self.portfolio.get_order_by_id(order_id)
+                if isinstance(order, SellOrder):
+                    self.portfolio.cancel_order(order_id)
 
-                        del self.order_id_to_level_map[order_id]
-                        level.order_ids.remove(order_id)
+                    del self.order_id_to_level_map[order_id]
+                    level.order_ids.remove(order_id)
 
-                        order_id = self.portfolio.place_stop_sell_order(
-                            level.upper_bound + 50, level.upper_bound,
-                            order.quantity, order.fill_handler)
-                        self.order_id_to_level_map[order_id] = level
-                        level.order_ids.append(order_id)
+                    order_id = self.portfolio.place_stop_sell_order(
+                        level.upper_bound + 50, level.upper_bound,
+                        order.quantity, order.fill_handler)
+                    self.order_id_to_level_map[order_id] = level
+                    level.order_ids.append(order_id)
 
-                        remaining_quantity -= order.quantity
+                    remaining_quantity -= order.quantity
 
             if remaining_quantity > 0:
                 order_id = self.portfolio.place_stop_sell_order(
@@ -174,13 +161,13 @@ class GridStrategy(Strategy):
 
 
 def main():
-    portfolio = SimulationPortfolio('ETC-USD', 1000, 0, 0.005)
+    portfolio = SimulationPortfolio('ETC-USD', 10000, 0, 0.005)
 
     pct = 1.05
     levels = np.cumprod(np.ones(5) * pct) * 3000 / pct
     strategy = GridStrategy(portfolio, levels)
 
-    df = pd.read_csv('data/Bitstamp_ETHUSD_2021_minute.csv')
+    df = pd.read_csv('data/Bitstamp_ETHUSD_1h.csv')
     df['date'] = pd.to_datetime(df['date'])
     df = df.set_index('date').sort_index()
 

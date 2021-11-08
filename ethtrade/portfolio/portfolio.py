@@ -1,6 +1,6 @@
 from typing import List, Union, Callable
 
-from order import Order, FilledOrder
+from ethtrade.order import Order, FilledOrder
 
 
 class Portfolio:

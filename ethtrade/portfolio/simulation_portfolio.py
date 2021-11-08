@@ -1,11 +1,10 @@
-
-from order import Order, FilledOrder, BuyOrder, SellOrder, MarketOrder, \
-    LimitOrder, StopOrder, MarketBuyOrder, MarketSellOrder, LimitBuyOrder, \
-    LimitSellOrder, StopBuyOrder, StopSellOrder
-from portfolio import Portfolio
-
 from uuid import uuid4
 from typing import Union, List, Dict, Tuple, Callable
+
+from ethtrade.order import Order, FilledOrder, BuyOrder, SellOrder, \
+    MarketOrder, LimitOrder, StopOrder, MarketBuyOrder, MarketSellOrder, \
+    LimitBuyOrder, LimitSellOrder, StopBuyOrder, StopSellOrder
+from ethtrade.portfolio import Portfolio
 
 
 class SimulationPortfolio(Portfolio):
