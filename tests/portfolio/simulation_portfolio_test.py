@@ -52,3 +52,16 @@ class TestSimulationPortfolio(TestCase):
 
         self.assertEqual(portfolio.get_budget(), 0)
         self.assertEqual(portfolio.get_quantity(), 1000 * 0.995 / 2966.4)
+
+    def test_place_stop_buy_order(self):
+        portfolio = SimulationPortfolio('ETH-USDC', 1000, 0, 0.005)
+        portfolio.reset(self.prices[0])
+
+        portfolio.place_stop_buy_order(
+            3250, 3200, portfolio.get_budget(), lambda x: None)
+
+        for price in self.prices:
+            portfolio.step(price)
+
+        self.assertEqual(portfolio.get_budget(), 0)
+        self.assertEqual(portfolio.get_quantity(), 1000 * 0.995 / 3166.78)
