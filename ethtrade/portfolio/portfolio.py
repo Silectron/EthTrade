@@ -4,7 +4,14 @@ from ethtrade.order import Order, FilledOrder
 
 
 class Portfolio:
+    """Base class for Portfolio"""
+
     def __init__(self, security: str):
+        """construct portfolio for a security
+
+        Args:
+            security (str): name of the security
+        """
         self.security = security
 
     def place_market_buy_order(self, budget: float,
