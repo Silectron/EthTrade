@@ -37,8 +37,8 @@ class SimulationPortfolio(Portfolio):
             budget = self._apply_fee(order.budget)
             quantity = budget / price
 
-            print(
-                f"Bought {quantity:.4f} {self.security} at {price:.2f}")
+            # print(
+            #     f"Bought {quantity:.4f} {self.security} at {price:.2f}")
 
             self.budget -= order.budget
             self.quantity += quantity
@@ -47,8 +47,8 @@ class SimulationPortfolio(Portfolio):
             quantity = order.quantity
             budget = self._apply_fee(quantity * price)
 
-            print(
-                f"Sold {quantity:.4f} {self.security} at {price:.2f}")
+            # print(
+            #     f"Sold {quantity:.4f} {self.security} at {price:.2f}")
 
             self.quantity -= quantity
             self.budget += budget
