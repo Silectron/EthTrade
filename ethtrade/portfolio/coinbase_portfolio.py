@@ -1,18 +1,20 @@
 from cbpro import AuthenticatedClient
-from typing import Callable, List, Union
+from typing import Callable, Generator, List, Union
 
 from ethtrade.order import FilledOrder, Order
 from ethtrade.portfolio import Portfolio
 
 
 class CoinbasePortfolio(Portfolio):
-    def __init__(self, security: str,
-                 cbpro_client: AuthenticatedClient,
-                 account_id: str):
+    def __init__(self, security: str, account_currency: str,
+                 cbpro_client: AuthenticatedClient):
         super().__init__(security)
         self.client = cbpro_client
-        self.account_id = account_id
+        self.account_id = self.get_account_by_currency(account_currency)
         self.max_retries = 5
+
+    def set_account_id(self, account_id: str):
+        self.account_id = account_id
 
     def place_market_buy_order(self, budget: float,
                                fill_handler: Callable[
@@ -149,7 +151,7 @@ class CoinbasePortfolio(Portfolio):
 
             if json_res['id'] is None:
                 raise Exception("Get quantity failed::" + json_res["message"])
-            
+
             return json_res['hold']
         except ValueError as e:
             print(str(e))
@@ -160,10 +162,26 @@ class CoinbasePortfolio(Portfolio):
         try:
             json_res = self.client.get_orders(product_id=self.security)
 
-            if json_res['id'] is None:
-                raise Exception("Get orders failed::" + json_res["message"])
+            if json_res is None:
+                raise Exception("Get orders failed::empty message")
+            elif not isinstance(json_res, Generator):
+                raise Exception(
+                    "Get orders failed::" + json_res["message"] if "message" in json_res else "unknown")
 
-            return [order['id'] for order in json_res]
+            list_of_orders = []
+            try:
+                order = next(json_res)
+                while(order is not None):
+                    list_of_orders.append(str(order))
+                    order = next(json_res)
+            except StopIteration:
+                if len(list_of_orders) > 0 and list_of_orders[0] == "message":
+                    raise Exception(
+                        "Get orders failed::likely provided incorrect security name. Security name for ETH is ETH-USD")
+
+                return list_of_orders
+
+            return list_of_orders
         except ValueError as e:
             print(str(e))
         except Exception as e:
@@ -172,10 +190,10 @@ class CoinbasePortfolio(Portfolio):
     def get_order_by_id(self, order_id: str) -> Union[Order, None]:
         try:
             json_res = self.client.get_order(order_id)
-            
+
             if json_res['id'] is None:
                 raise Exception("Get order failed::" + json_res["message"])
-            
+
             return Order(json_res)
         except ValueError as e:
             print(str(e))
@@ -192,6 +210,37 @@ class CoinbasePortfolio(Portfolio):
                     return True
             raise Exception("Cancel order failed " +
                             str(self.max_retries) + " times")
+        except ValueError as e:
+            print(str(e))
+        except Exception as e:
+            raise ConnectionError(str(e))
+
+    def get_accounts(self) -> List[str]:
+        try:
+            json_res = self.client.get_accounts()
+
+            if json_res is None:
+                raise Exception("Get accounts failed::" + json_res["message"])
+
+            return json_res
+        except ValueError as e:
+            print(str(e))
+        except Exception as e:
+            raise ConnectionError(str(e))
+
+    def get_account_by_currency(self, currency: str) -> str:
+        try:
+            json_res = self.client.get_accounts()
+
+            if json_res is None:
+                raise Exception(
+                    "Get accounts failed::" + json_res["message"] + ". likely incorrect account currency. Currency name for ETH is ETH")
+
+            for account in json_res:
+                if account['currency'] == currency:
+                    return account['id']
+            raise Exception("Account not found for " +
+                            currency + ". Recheck currency name")
         except ValueError as e:
             print(str(e))
         except Exception as e:
