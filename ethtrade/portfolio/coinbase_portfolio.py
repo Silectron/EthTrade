@@ -1,3 +1,4 @@
+import json
 from cbpro import AuthenticatedClient
 from typing import Callable, Generator, List, Union
 
@@ -6,15 +7,16 @@ from ethtrade.portfolio import Portfolio
 
 
 class CoinbasePortfolio(Portfolio):
-    def __init__(self, security: str, account_currency: str,
+    def __init__(self, security: str, account_currency: str, currency: str,
                  cbpro_client: AuthenticatedClient):
         super().__init__(security)
         self.client = cbpro_client
-        self.account_id = self.get_account_by_currency(account_currency)
+        self.usd_account_id = self.get_account_by_currency(account_currency)
+        self.crypto_account_id = self.get_account_by_currency(currency)
         self.max_retries = 5
 
     def set_account_id(self, account_id: str):
-        self.account_id = account_id
+        self.usd_account_id = account_id
 
     def place_market_buy_order(self, budget: float,
                                fill_handler: Callable[
@@ -23,7 +25,7 @@ class CoinbasePortfolio(Portfolio):
             json_res = self.client.place_market_order(
                 product_id=self.security, side="buy", funds=budget)
 
-            if json_res['id'] is None:
+            if 'id' not in json_res:
                 raise Exception("Market buy order failed")
 
         except ValueError as e:
@@ -31,18 +33,20 @@ class CoinbasePortfolio(Portfolio):
         except Exception as e:
             raise ConnectionError(str(e))
 
+    '''Place limit buy order with price/unit for amount (size) of crypto'''
     def place_limit_buy_order(self, limit_price: float, budget: float,
                               fill_handler: Callable[
                                   [FilledOrder], None]) -> str:
         try:
             json_res = self.client.place_limit_order(
                 product_id=self.security, side="buy",
-                price=limit_price, funds=budget)
+                price=limit_price, size=budget)
 
-            if json_res['id'] is None:
+            if not isinstance(json_res, list) and 'id' not in json_res and json_res['message']:
                 raise Exception("Limit buy order failed::" +
                                 json_res["message"])
-
+                
+            return json_res['id']
         except ValueError as e:
             print(str(e))
         except Exception as e:
@@ -53,11 +57,10 @@ class CoinbasePortfolio(Portfolio):
                                  [FilledOrder], None]) -> str:
         try:
             json_res = self.client.place_stop_order(
-                product_id=self.security, side="entry",
-                price=limit_price, funds=budget,
-                stop=stop_price)
+                product_id=self.security, side='buy',
+                price=stop_price, funds=budget)
 
-            if json_res['id'] is None:
+            if not isinstance(json_res, list) and 'id' not in json_res:
                 raise Exception("Stop buy order failed::" +
                                 json_res["message"])
             else:
@@ -75,7 +78,7 @@ class CoinbasePortfolio(Portfolio):
             json_res = self.client.place_market_order(
                 product_id=self.security, side="sell", size=quantity)
 
-            if json_res['id'] is None:
+            if 'id' not in json_res:
                 raise Exception("Market sell order failed::" +
                                 json_res["message"])
             else:
@@ -94,7 +97,7 @@ class CoinbasePortfolio(Portfolio):
                 product_id=self.security, side="sell",
                 price=limit_price, size=quantity)
 
-            if json_res['id'] is None:
+            if 'id' not in json_res:
                 raise Exception("Limit sell order failed::" +
                                 json_res["message"])
             else:
@@ -113,7 +116,7 @@ class CoinbasePortfolio(Portfolio):
                 roduct_id=self.security, stop_type="loss",
                 price=limit_price, size=quantity, stop=stop_price)
 
-            if json_res['id'] is None:
+            if 'id' not in json_res:
                 raise Exception("Stop sell order failed::" +
                                 json_res["message"])
             else:
@@ -126,7 +129,7 @@ class CoinbasePortfolio(Portfolio):
 
     def get_budget(self) -> float:
         try:
-            json_res = self.client.get_account(self.account_id)
+            json_res = self.client.get_account(self.usd_account_id)
             '''
                 {
                     "id": "a1b2c3d4",
@@ -136,7 +139,7 @@ class CoinbasePortfolio(Portfolio):
                     "currency": "USD"
                 }
             '''
-            if json_res['id'] is None:
+            if 'id' not in json_res:
                 raise Exception("Get budget failed::" + json_res["message"])
 
             return json_res['available']
@@ -147,9 +150,9 @@ class CoinbasePortfolio(Portfolio):
 
     def get_quantity(self) -> float:
         try:
-            json_res = self.client.get_account(self.account_id)
+            json_res = self.client.get_account(self.crypto_account_id)
 
-            if json_res['id'] is None:
+            if 'id' not in json_res:
                 raise Exception("Get quantity failed::" + json_res["message"])
 
             return json_res['hold']
@@ -164,24 +167,17 @@ class CoinbasePortfolio(Portfolio):
 
             if json_res is None:
                 raise Exception("Get orders failed::empty message")
-            elif not isinstance(json_res, Generator):
+            elif not isinstance(json_res, Generator) and not isinstance(json_res, list) and json_res['message'] is not None:
                 raise Exception(
                     "Get orders failed::" + json_res["message"] if "message" in json_res else "unknown")
-
-            list_of_orders = []
-            try:
-                order = next(json_res)
-                while(order is not None):
-                    list_of_orders.append(str(order))
-                    order = next(json_res)
-            except StopIteration:
-                if len(list_of_orders) > 0 and list_of_orders[0] == "message":
-                    raise Exception(
-                        "Get orders failed::likely provided incorrect security name. Security name for ETH is ETH-USD")
-
-                return list_of_orders
+                
+            list_of_orders = list(json_res)
+            
+            if len(list_of_orders) > 0 and list_of_orders[0] == 'message':
+                return []
 
             return list_of_orders
+        
         except ValueError as e:
             print(str(e))
         except Exception as e:
@@ -191,7 +187,7 @@ class CoinbasePortfolio(Portfolio):
         try:
             json_res = self.client.get_order(order_id)
 
-            if json_res['id'] is None:
+            if 'id' not in json_res:
                 raise Exception("Get order failed::" + json_res["message"])
 
             return Order(json_res)
@@ -234,14 +230,16 @@ class CoinbasePortfolio(Portfolio):
 
             if json_res is None:
                 raise Exception(
-                    "Get accounts failed::" + json_res["message"] + ". likely incorrect account currency. Currency name for ETH is ETH")
+                    "Get accounts failed:: likely incorrect account currency. Currency name for ETH is ETH")
+            elif not isinstance(json_res, list) and json_res["message"] is not None:
+                raise Exception("Get accounts failed::" + json_res["message"])
 
             for account in json_res:
-                if account['currency'] == currency:
+                if account['currency'] is not None and account['currency'] == currency:
                     return account['id']
             raise Exception("Account not found for " +
                             currency + ". Recheck currency name")
         except ValueError as e:
             print(str(e))
         except Exception as e:
-            raise ConnectionError(str(e))
+            raise ConnectionError(e)

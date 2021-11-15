@@ -12,10 +12,16 @@ def main():
     secret = config["CB_SECRET"]
     passphrase = config["CB_PASSPHRASE"]
     
-    client = cbpro.AuthenticatedClient(key, secret, passphrase)
-    portfolio = CoinbasePortfolio("ETH-USD", "ETH", client)
+    try:
+        client = cbpro.AuthenticatedClient(key, secret, passphrase)
+        # client = cbpro.AuthenticatedClient(key, secret, passphrase, api_url="https://api-public.sandbox.pro.coinbase.com") # sandbox
+        
+    except Exception as e:
+        print(e)
+        return
+    # Security is currency pair
+    portfolio = CoinbasePortfolio("ETH-USD", "USD", "ETH", client)
     
-    print(portfolio.get_account_by_currency("ETH"))
     print(portfolio.get_accounts())
     print(portfolio.get_quantity())
     print(portfolio.get_budget())
