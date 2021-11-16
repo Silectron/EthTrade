@@ -1,8 +1,8 @@
-import json
+from decimal import Decimal, ROUND_DOWN
 from cbpro import AuthenticatedClient
 from typing import Callable, Generator, List, Union
 
-from ethtrade.order import FilledOrder, Order
+from ethtrade.order import FilledOrder, Order, BuyOrder, SellOrder
 from ethtrade.portfolio import Portfolio
 
 
@@ -76,8 +76,8 @@ class CoinbasePortfolio(Portfolio):
         """        ''''''
         if limit_price <= 0 or budget <= 0:
             raise ValueError("Limit price and budget must be greater than 0")
-            
-        return round(budget / limit_price, 6)
+        
+        return float(Decimal(budget / limit_price).quantize(Decimal('0.000001'), rounding=ROUND_DOWN))
 
     def place_market_buy_order(self, budget: float,
                                fill_handler: Callable[
@@ -356,7 +356,7 @@ class CoinbasePortfolio(Portfolio):
             List[str]: list of order ids
         """        ''''''
         try:
-            json_res = self.client.get_orders(product_id=self.security)
+            json_res = self.client.get_orders(product_id=self.security, status=["open", "pending", "active", "done"])
 
             if json_res is None:
                 raise Exception("Get orders failed::empty message")
@@ -394,8 +394,22 @@ class CoinbasePortfolio(Portfolio):
 
             if 'id' not in json_res:
                 raise Exception("Get order failed::" + json_res["message"])
-
-            return Order(json_res['id'])
+            
+            if json_res['side'] == 'buy':
+                if json_res['type'] == 'limit':
+                    price = float(json_res['price'])
+                elif json_res['type'] == 'market':
+                    price = round(float(json_res['executed_value']) / float(json_res['filled_size']), 6)
+                order = BuyOrder(order_id=json_res['id'], budget=price, fill_handler=None)
+            elif json_res['side'] == 'sell':
+                order = SellOrder(order_id=json_res['id'], quantity=float(json_res['size']), fill_handler=None)
+            else :
+                raise Exception("Get order failed::invalid side")
+            
+            if json_res['status'] == 'done' and json_res['settled'] == True and json_res['done_reason'] == 'filled':
+                print(FilledOrder(order=order, quantity=float(json_res['filled_size']), price=float(json_res['executed_value'])+float(json_res['fill_fees'])))
+                
+            return order
         except ValueError as e:
             print(str(e))
         except Exception as e:
@@ -447,3 +461,116 @@ class CoinbasePortfolio(Portfolio):
             print(str(e))
         except Exception as e:
             raise ConnectionError(str(e))
+        
+    def get_filled_orders(self) -> List[FilledOrder]:
+        """Get list of filled orders.
+
+        Raises:
+            Exception: Get filled orders failed.
+            Exception: Get filled orders failed with message.
+            Exception: Invalid side for order. Side must be buy or sell.
+            ConnectionError: raise exception
+
+        Returns:
+            List[FilledOrder]: list of filled orders
+        """        ''''''
+        try:
+            json_res = self.client.get_orders(product_id=self.security, status=["done"])
+
+            if json_res is None:
+                raise Exception("Get orders failed::empty message")
+            elif not isinstance(json_res, Generator) and not isinstance(json_res, list) and json_res['message'] is not None:
+                raise Exception(
+                    "Get orders failed::" + json_res["message"] if "message" in json_res else "unknown")
+                
+            list_filled_orders = []
+            try:
+                while(1):
+                    next_order = next(json_res)
+                    
+                    if next_order['side'] == 'buy':
+                        if next_order['type'] == 'limit':
+                            price = float(next_order['price'])
+                        elif next_order['type'] == 'market':
+                            price = round(float(next_order['executed_value']) / float(next_order['filled_size']), 6)
+                        order = BuyOrder(order_id=next_order['id'], budget=price, fill_handler=None)
+                    elif next_order['side'] == 'sell':
+                        order = SellOrder(order_id=next_order['id'], quantity=float(next_order['size']), fill_handler=None)
+                    else :
+                        raise Exception("Get order failed::invalid side")
+                    
+                    list_filled_orders.append(FilledOrder(order=order, quantity=float(next_order['filled_size']), price=float(next_order['executed_value'])+float(next_order['fill_fees'])))
+                    
+            except StopIteration:
+                pass
+
+            return list_filled_orders
+        
+        except ValueError as e:
+            print(str(e))
+        except Exception as e:
+            raise ConnectionError(str(e))
+        
+    def get_order_fills_by_order(self, order_id: str) -> List[str]:
+        """Get fills for order by order id.
+
+        Args:
+            order_id (str): order id
+
+        Raises:
+            Exception: Get order fills failed.
+            Exception: Get order fills failed with message.
+            ConnectionError: raise exception
+
+        Returns:
+            List[str]: list of fills for a given order
+        """        ''''''
+        try:
+            json_res = self.client.get_fills(order_id=order_id)
+
+            if json_res is None:
+                raise Exception("Get order fills failed::No content response")
+            elif not isinstance(json_res, Generator) and 'message' in json_res:
+               raise Exception("Get order fills failed::" + json_res["message"])
+
+            list_filled_orders = list(json_res)
+            if len(list_filled_orders) > 0 and list_filled_orders[0] == 'message':
+                return []
+
+            return list_filled_orders
+
+        except ValueError as e:
+            print(str(e))
+        except Exception as e:
+            raise ConnectionError(str(e))
+        
+    def get_order_fills(self) -> List[str]:
+        """Get fills for all orders by security pair (product id).
+
+        Raises:
+            Exception: Get order fills failed.
+            Exception: Get order fills failed with message.
+            ConnectionError: raise exception
+
+        Returns:
+            List[str]: list of fills
+        """        ''''''
+        try:
+            json_res = self.client.get_fills(product_id=self.security)
+
+            if json_res is None:
+                raise Exception("Get order fills failed::No content response")
+            elif not isinstance(json_res, Generator) and 'message' in json_res:
+               raise Exception("Get order fills failed::" + json_res["message"])
+
+            list_filled_orders = list(json_res)
+            if len(list_filled_orders) > 0 and list_filled_orders[0] == 'message':
+                return []
+
+            return list_filled_orders
+
+        except ValueError as e:
+            print(str(e))
+        except Exception as e:
+            raise ConnectionError(str(e))
+        

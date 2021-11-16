@@ -1,6 +1,7 @@
 import cbpro
 import json
 from ethtrade.portfolio import CoinbasePortfolio
+from math import floor
 
 
 def main():
@@ -25,8 +26,9 @@ def main():
     print(portfolio.get_accounts())
     print(portfolio.get_quantity())
     print(portfolio.get_budget())
-    print(portfolio.place_limit_buy_order(40000, 100, None))
+    # print(portfolio.place_limit_buy_order(60800, 600, None))
     print(portfolio.get_order_ids())
+    print(portfolio.get_filled_orders())
     
     return
 
