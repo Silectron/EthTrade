@@ -711,3 +711,18 @@ class CoinbasePortfolio(Portfolio):
         for order_id in self.get_filled_orders():
             # Handle place stop orders?
             ...
+
+    # On init, place limit buy order for current level AND place stop buy order for level above current level
+
+    # On buy order filled, keep track of state at filled level/grid
+    # On sell order filled, deaggregate total of the filled sell order and update state of levels involved, place limit buy order for level of executed sell order
+    
+    # On rising to a level, if leaving_level.quantity > 0, check for sell order quantities at all lower levels, cancel them, then place aggregated stop sell order at entering_level.lower
+    # AND place stop buy order for level above entering_level
+    # On falling to a level, if entering_level.budget > 0 and no limit buy order at entering_level then place limit buy order at entering_level.lower
+    
+    # Nice to haves for later:
+    # Persistence of handled filled orders and state of grid for resumption on restart
+    # Update grids programmatically
+    
+    
