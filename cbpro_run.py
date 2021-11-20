@@ -24,8 +24,8 @@ def main():
     portfolio = CoinbasePortfolio(security_pair="BTC-USD", cbpro_client=client)
     
     print(portfolio.get_accounts())
-    print(portfolio.get_quantity())
-    print(portfolio.get_budget())
+    # print(portfolio.get_quantity())
+    # print(portfolio.get_budget())
     # print(portfolio.place_limit_buy_order(60800, 600, None))
     print(portfolio.get_order_ids())
     print(portfolio.get_filled_orders())
